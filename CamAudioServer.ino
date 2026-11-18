@@ -14,8 +14,9 @@
   copies or substantial portions of the Software.
 *********/
 
+#include <Arduino.h>
+#include <driver/i2s.h>
 #include <WiFi.h>
-#include "audio.h"
 #include "esp_camera.h"
 #include "esp_timer.h"
 #include "img_converters.h"
@@ -25,78 +26,15 @@
 #include "soc/rtc_cntl_reg.h"  //disable brownout problems
 #include "esp_http_server.h"
 
-//Replace with your network credentials
-const char* ssid = "Kenloe";
-const char* password = "Our2021Life";
+// Network credentials
+const char* ssid = "funnyWifiName";
+const char* password = "Hybridbird2";
 
 #define PART_BOUNDARY "123456789000000000000987654321"
-
-// This project was tested with the AI Thinker Model, M5STACK PSRAM Model and M5STACK WITHOUT PSRAM
 #define CAMERA_MODEL_AI_THINKER
-//#define CAMERA_MODEL_M5STACK_PSRAM
-//#define CAMERA_MODEL_M5STACK_WITHOUT_PSRAM
 
-// Not tested with this model
-//#define CAMERA_MODEL_WROVER_KIT
-
-#if defined(CAMERA_MODEL_WROVER_KIT)
-  #define PWDN_GPIO_NUM    -1
-  #define RESET_GPIO_NUM   -1
-  #define XCLK_GPIO_NUM    21
-  #define SIOD_GPIO_NUM    26
-  #define SIOC_GPIO_NUM    27
-  
-  #define Y9_GPIO_NUM      35
-  #define Y8_GPIO_NUM      34
-  #define Y7_GPIO_NUM      39
-  #define Y6_GPIO_NUM      36
-  #define Y5_GPIO_NUM      19
-  #define Y4_GPIO_NUM      18
-  #define Y3_GPIO_NUM       5
-  #define Y2_GPIO_NUM       4
-  #define VSYNC_GPIO_NUM   25
-  #define HREF_GPIO_NUM    23
-  #define PCLK_GPIO_NUM    22
-
-#elif defined(CAMERA_MODEL_M5STACK_PSRAM)
-  #define PWDN_GPIO_NUM     -1
-  #define RESET_GPIO_NUM    15
-  #define XCLK_GPIO_NUM     27
-  #define SIOD_GPIO_NUM     25
-  #define SIOC_GPIO_NUM     23
-  
-  #define Y9_GPIO_NUM       19
-  #define Y8_GPIO_NUM       36
-  #define Y7_GPIO_NUM       18
-  #define Y6_GPIO_NUM       39
-  #define Y5_GPIO_NUM        5
-  #define Y4_GPIO_NUM       34
-  #define Y3_GPIO_NUM       35
-  #define Y2_GPIO_NUM       32
-  #define VSYNC_GPIO_NUM    22
-  #define HREF_GPIO_NUM     26
-  #define PCLK_GPIO_NUM     21
-
-#elif defined(CAMERA_MODEL_M5STACK_WITHOUT_PSRAM)
-  #define PWDN_GPIO_NUM     -1
-  #define RESET_GPIO_NUM    15
-  #define XCLK_GPIO_NUM     27
-  #define SIOD_GPIO_NUM     25
-  #define SIOC_GPIO_NUM     23
-  
-  #define Y9_GPIO_NUM       19
-  #define Y8_GPIO_NUM       36
-  #define Y7_GPIO_NUM       18
-  #define Y6_GPIO_NUM       39
-  #define Y5_GPIO_NUM        5
-  #define Y4_GPIO_NUM       34
-  #define Y3_GPIO_NUM       35
-  #define Y2_GPIO_NUM       17
-  #define VSYNC_GPIO_NUM    22
-  #define HREF_GPIO_NUM     26
-  #define PCLK_GPIO_NUM     21
-
-#elif defined(CAMERA_MODEL_AI_THINKER)
+// camera parameters
+#if defined(CAMERA_MODEL_AI_THINKER)
   #define PWDN_GPIO_NUM     32
   #define RESET_GPIO_NUM    -1
   #define XCLK_GPIO_NUM      0
@@ -118,12 +56,62 @@ const char* password = "Our2021Life";
   #error "Camera model not selected"
 #endif
 
+// audio parameters
+#define I2S_SCK  13
+#define I2S_WS   12
+#define I2S_SD   15
+#define I2S_PORT I2S_NUM_1
+#define SAMPLE_RATE 16000
+#define BUFFER_LEN 512
+
+// server stuff
 static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+static int32_t sBuffer[BUFFER_LEN];
+static bool audioReady = false;
 
 httpd_handle_t stream_httpd = NULL;
+httpd_handle_t audio_httpd = NULL; 
 
+// audio helpers
+void setupAudio() {
+    // I2S configuration
+    i2s_config_t i2s_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+        .sample_rate = SAMPLE_RATE,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,   // L/R = GND
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 8,
+        .dma_buf_len = BUFFER_LEN,
+        .use_apll = false
+    };
+
+    // Pin configuration
+    i2s_pin_config_t pin_config = {
+        .bck_io_num = I2S_SCK,
+        .ws_io_num = I2S_WS,
+        .data_out_num = I2S_PIN_NO_CHANGE,
+        .data_in_num = I2S_SD
+    };
+
+    // Start I2S
+    i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+    i2s_set_pin(I2S_PORT, &pin_config);
+    i2s_zero_dma_buffer(I2S_PORT);
+
+    Serial.println("I2S started.");
+    Serial.println("Reading microphone...");
+
+    // set audioReady to true
+    audioReady = true;
+
+    Serial.println("Audio Ready!");
+}
+
+// handlers
 static esp_err_t stream_handler(httpd_req_t *req){
   camera_fb_t * fb = NULL;
   esp_err_t res = ESP_OK;
@@ -183,6 +171,35 @@ static esp_err_t stream_handler(httpd_req_t *req){
   return res;
 }
 
+static esp_err_t audio_handler(httpd_req_t *req){
+  // our response
+  esp_err_t res = ESP_OK;
+
+  // set response type to arbitrary byte stream
+  res = httpd_resp_set_type(req, "application/octet-stream");
+  if (res != ESP_OK) {
+    return res;
+  }
+
+  // infinite loop to fetch audio
+  while (res == ESP_OK) {
+    // count number of bytes read
+    size_t bytes_read = 0;
+
+    // Read microphone data
+    res = i2s_read(I2S_PORT, sBuffer, sizeof(sBuffer), &bytes_read, portMAX_DELAY);
+
+    // if read was unsuccessful, break
+    if (res != ESP_OK || bytes_read == 0) break;
+
+    // send audio
+    res = httpd_resp_send_chunk(req, (const char *) sBuffer, bytes_read);
+  }
+
+  return res;
+}
+
+// server start code
 void startCameraServer(){
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
@@ -200,6 +217,24 @@ void startCameraServer(){
   }
 }
 
+void startAudioServer(){
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 81;
+  config.ctrl_port = 93;
+
+  httpd_uri_t index_uri = {
+    .uri       = "/",
+    .method    = HTTP_GET,
+    .handler   = audio_handler,
+    .user_ctx  = NULL
+  };
+  
+  if (httpd_start(&audio_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(audio_httpd, &index_uri); // register our GET function
+  }
+}
+
+// setup (run on boot)
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
  
@@ -272,9 +307,12 @@ void setup() {
 
   // setup audio
   setupAudio();
+
+  // start audio server if ready
+  if (audioReady) startAudioServer();
+  else Serial.println("Error. Audio not set up.");
 }
 
 void loop() {
-  // process audio
-  processAudio();
+  // do nothing
 }
