@@ -24,12 +24,10 @@ def video_loop(cap):
         if cv.waitKey(1) == ord('q'):
             break
 
-    # When everything done, release the capture
-    cap.release()
-    cv.destroyAllWindows()
-
-def audio_loop(res):
+def audio_loop(res, event):
     for c in res.iter_content(chunk_size=2048):
+        if event.is_set():
+            break
         print(np.frombuffer(c, dtype=np.int32))
 
 if __name__ == "__main__":
@@ -43,11 +41,20 @@ if __name__ == "__main__":
     response = requests.get("http://10.0.0.89:81/", stream=True)
 
     # start audio thread
-    audio_thread = threading.Thread(target=audio_loop, args=(response,))
+    event = threading.Event()
+    audio_thread = threading.Thread(target=audio_loop, args=(response, event))
     audio_thread.start()
 
     # run video loop
     video_loop(cap)
 
+    # set event once video loop is finished
+    event.set()
+
     # join thread
     audio_thread.join()
+
+    # cleanup
+    cap.release()
+    cv.destroyAllWindows()
+    response.close()

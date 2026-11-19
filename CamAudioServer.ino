@@ -27,8 +27,8 @@
 #include "esp_http_server.h"
 
 // Network credentials
-const char* ssid = "24wifi";
-const char* password = "lebronjamesfan@1";
+const char* ssid = "funnyWifiName";
+const char* password = "Hybridbird2";
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 #define CAMERA_MODEL_AI_THINKER
