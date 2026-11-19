@@ -59,7 +59,7 @@ class StateMachine:
         return None
 
 # thread functions
-def audio_loop(res: requests.Response, sm: StateMachine, q: queue.Queue, event: threading.Event) -> None:
+def audio_loop(res: requests.Response, sm: StateMachine, vad, q: queue.Queue, event: threading.Event) -> None:
     buffer = bytearray()
     for c in res.iter_content(chunk_size=2048):
         if event.is_set():
@@ -92,7 +92,7 @@ def transcription_loop(q: queue.Queue, model: WhisperModel, event: threading.Eve
             utt = q.get(timeout=0.1)
         except queue.Empty:
             continue
-        
+
         segments, _ = model.transcribe(
             utt,
             language='en'
@@ -101,7 +101,8 @@ def transcription_loop(q: queue.Queue, model: WhisperModel, event: threading.Eve
         for s in segments:
             print(s.text)
 
-if __name__ == "__main__":
+# main function
+def main():
     # initialize whisper model and state machine
     model_size = "small" 
     model = WhisperModel(model_size, device="cpu", compute_type="float32")
@@ -116,12 +117,16 @@ if __name__ == "__main__":
         exit()
 
     # get audio feed from ESP32 server
-    response = requests.get("http://10.0.0.89:81/", stream=True)
+    try:
+        response = requests.get("http://10.0.0.89:81/", stream=True, timeout=5)
+    except requests.exceptions.Timeout:
+        print("Attempt to connect to audio feed timed out. Exiting script.")
+        exit()
 
     # start audio and transcription thread
     event = threading.Event()
 
-    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, utterance_queue, event,))
+    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, vad, utterance_queue, event,))
     transcript_thread = threading.Thread(target=transcription_loop, args=(utterance_queue, model, event))
 
     audio_thread.start()
@@ -152,3 +157,6 @@ if __name__ == "__main__":
     cap.release()
     cv.destroyAllWindows()
     response.close()
+
+if __name__ == "__main__":
+    main()
