@@ -1,15 +1,54 @@
 import requests
 import numpy as np
+from scipy.io.wavfile import write
 import time
 import threading
 import cv2 as cv
 
+# constants
+SAMPLE_RATE = 16_000
+
 # thread functions
-def video_loop(cap):
-    # infinite loop to grab camera frames
+def audio_loop(res: requests.Response, buffer: bytearray, event: threading.Event) -> None:
+    for c in res.iter_content(chunk_size=2048):
+        if event.is_set():
+            break
+        
+        # extend buffer with this new chunk
+        buffer.extend(c)
+
+if __name__ == "__main__":
+    # get video feed from ESP32 server 
+    cap = cv.VideoCapture("http://10.0.0.89/")
+    if not cap.isOpened():
+        print("Cannot open camera")
+        exit()
+
+    # get audio feed from ESP32 server
+    response = requests.get("http://10.0.0.89:81/", stream=True)
+
+    # start audio thread
+    buffer = bytearray()
+    event = threading.Event()
+    audio_thread = threading.Thread(target=audio_loop, args=(response, buffer, event,))
+    audio_thread.start()
+
+    # run main/video loop
     while True:
         # Capture frame-by-frame
         ret, frame = cap.read()
+        
+        # convert audio buffer into samples
+        complete_samples = len(buffer) // 4
+        complete_bytes = complete_samples * 4 
+
+        # get 5 seconds of audio
+        if complete_samples >= 80_000:
+            samples = np.frombuffer(buffer, dtype=np.int32) >> 8
+            samples = samples.astype(np.float32) / (2 ** 23)
+            write("sample.wav", SAMPLE_RATE, samples)
+            break
+
     
         # if frame is read correctly ret is True
         if not ret:
@@ -23,30 +62,6 @@ def video_loop(cap):
         cv.imshow('frame', gray)
         if cv.waitKey(1) == ord('q'):
             break
-
-def audio_loop(res, event):
-    for c in res.iter_content(chunk_size=2048):
-        if event.is_set():
-            break
-        print(np.frombuffer(c, dtype=np.int32))
-
-if __name__ == "__main__":
-    # get video feed from ESP32 server 
-    cap = cv.VideoCapture("http://10.0.0.89/")
-    if not cap.isOpened():
-        print("Cannot open camera")
-        exit()
-
-    # get audio feed from ESP32 server
-    response = requests.get("http://10.0.0.89:81/", stream=True)
-
-    # start audio thread
-    event = threading.Event()
-    audio_thread = threading.Thread(target=audio_loop, args=(response, event))
-    audio_thread.start()
-
-    # run video loop
-    video_loop(cap)
 
     # set event once video loop is finished
     event.set()
