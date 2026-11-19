@@ -20,6 +20,8 @@ BYTES_PER_HZ = 4
 SAMPLES = int(SAMPLE_RATE * SECONDS)
 SAMPLE_BYTES = SAMPLES * BYTES_PER_HZ
 
+VAD_THRESHOLD = 0.5
+
 # thread functions
 def audio_loop(res: requests.Response, event: threading.Event) -> None:
     buffer = bytearray()
@@ -41,7 +43,8 @@ def audio_loop(res: requests.Response, event: threading.Event) -> None:
             # feed audio through silero VAD model
             with torch.inference_mode():
                 probability = vad(torch.from_numpy(samples), SAMPLE_RATE).item()
-            print(probability)
+
+            # update state machine
 
             # feed audio through whisper model
             """segments, _ = model.transcribe(
@@ -58,13 +61,42 @@ def audio_loop(res: requests.Response, event: threading.Event) -> None:
 class StateMachine:
     def __init__(self):
         self.mode = 0 # 0 = listening, 1 = recording
+        self.pre_roll = deque(maxlen=10)
+        self.recording = [] # stores the recorded conversation
+        self.silent_periods = 0
+
+    def process(self, samples: np.ndarray, p: float) -> np.ndarray | None:
+        if self.mode == 0:
+            if p < VAD_THRESHOLD:
+                self.pre_roll.append(samples)
+            else:
+                self.mode = 1
+                self.recording.extend(self.pre_roll)
+                self.recording.append(samples)
+        else:
+            self.recording.append(samples)
+
+            if p < VAD_THRESHOLD:
+                self.silent_periods += 1
+            else:
+                self.silent_periods = 0
+
+            # reset upon long silence (conversation assumed to have ended)
+            if self.silent_periods >= 22:
+                self.mode = 0
+                self.silent_periods = 0
+                ret = self.recording.copy()
+                self.recording.clear()
+                self.pre_roll.clear()
+                return np.concatenate(ret)
+            
+        return None
 
 if __name__ == "__main__":
-    # initialize whisper model, pre-roll, and state machine
+    # initialize whisper model and state machine
     model_size = "small" 
     model = WhisperModel(model_size, device="cpu", compute_type="float32")
     vad = load_silero_vad()
-    pre_roll = deque(maxlen=10)
     sm = StateMachine()
 
     # get video feed from ESP32 server 
