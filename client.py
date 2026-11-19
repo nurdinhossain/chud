@@ -22,41 +22,6 @@ SAMPLE_BYTES = SAMPLES * BYTES_PER_HZ
 
 VAD_THRESHOLD = 0.5
 
-# thread functions
-def audio_loop(res: requests.Response, event: threading.Event) -> None:
-    buffer = bytearray()
-    for c in res.iter_content(chunk_size=2048):
-        if event.is_set():
-            break
-        
-        # extend buffer with this new chunk
-        buffer.extend(c)
-        
-        # convert audio buffer into samples
-        while len(buffer) >= SAMPLE_BYTES:
-            samples = np.frombuffer(buffer[:SAMPLE_BYTES], dtype=np.int32) >> 8
-            samples = samples.astype(np.float32) / (2 ** 23)
-
-            # delete sample so we don't read it again
-            del buffer[:SAMPLE_BYTES]
-            
-            # feed audio through silero VAD model
-            with torch.inference_mode():
-                probability = vad(torch.from_numpy(samples), SAMPLE_RATE).item()
-
-            # update state machine
-
-            # feed audio through whisper model
-            """segments, _ = model.transcribe(
-                samples,
-                language='en'
-            )
-
-            for s in segments:
-                print(s.text)
-
-            break"""
-
 # audio state machine
 class StateMachine:
     def __init__(self):
@@ -92,6 +57,40 @@ class StateMachine:
             
         return None
 
+# thread functions
+def audio_loop(res: requests.Response, sm: StateMachine, model: WhisperModel, event: threading.Event) -> None:
+    buffer = bytearray()
+    for c in res.iter_content(chunk_size=2048):
+        if event.is_set():
+            break
+        
+        # extend buffer with this new chunk
+        buffer.extend(c)
+        
+        # convert audio buffer into samples
+        while len(buffer) >= SAMPLE_BYTES:
+            samples = np.frombuffer(buffer[:SAMPLE_BYTES], dtype=np.int32) >> 8
+            samples = samples.astype(np.float32) / (2 ** 23)
+
+            # delete sample so we don't read it again
+            del buffer[:SAMPLE_BYTES]
+            
+            # feed audio through silero VAD model
+            with torch.inference_mode():
+                probability = vad(torch.from_numpy(samples), SAMPLE_RATE).item()
+
+            # update state machine
+            utterance = sm.process(samples, probability)
+            if utterance is not None:
+                # feed audio through whisper model
+                segments, _ = model.transcribe(
+                    utterance,
+                    language='en'
+                )
+
+                for s in segments:
+                    print(s.text)
+
 if __name__ == "__main__":
     # initialize whisper model and state machine
     model_size = "small" 
@@ -110,7 +109,7 @@ if __name__ == "__main__":
 
     # start audio thread
     event = threading.Event()
-    audio_thread = threading.Thread(target=audio_loop, args=(response, event,))
+    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, model, event,))
     audio_thread.start()
 
     # run main/video loop
