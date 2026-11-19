@@ -6,12 +6,12 @@ import threading
 import cv2 as cv
 import numpy as np
 from collections import deque
-from scipy.io.wavfile import write
+import queue
 
 # model
 import torch
 from faster_whisper import WhisperModel
-from silero_vad import load_silero_vad, get_speech_timestamps
+from silero_vad import load_silero_vad
 
 # constants
 SAMPLE_RATE = 16_000
@@ -50,15 +50,16 @@ class StateMachine:
             if self.silent_periods >= 22:
                 self.mode = 0
                 self.silent_periods = 0
-                ret = self.recording.copy()
+                ret = np.concatenate(self.recording)
                 self.recording.clear()
                 self.pre_roll.clear()
-                return np.concatenate(ret)
+
+                return ret
             
         return None
 
 # thread functions
-def audio_loop(res: requests.Response, sm: StateMachine, model: WhisperModel, event: threading.Event) -> None:
+def audio_loop(res: requests.Response, sm: StateMachine, q: queue.Queue, event: threading.Event) -> None:
     buffer = bytearray()
     for c in res.iter_content(chunk_size=2048):
         if event.is_set():
@@ -79,17 +80,26 @@ def audio_loop(res: requests.Response, sm: StateMachine, model: WhisperModel, ev
             with torch.inference_mode():
                 probability = vad(torch.from_numpy(samples), SAMPLE_RATE).item()
 
-            # update state machine
+            # update state machine and update queue if we have a valid utterance
             utterance = sm.process(samples, probability)
             if utterance is not None:
-                # feed audio through whisper model
-                segments, _ = model.transcribe(
-                    utterance,
-                    language='en'
-                )
+                q.put(utterance)
 
-                for s in segments:
-                    print(s.text)
+def transcription_loop(q: queue.Queue, model: WhisperModel, event: threading.Event) -> None:
+    while not event.is_set():
+        # feed audio through whisper model
+        try:
+            utt = q.get(timeout=0.1)
+        except queue.Empty:
+            continue
+        
+        segments, _ = model.transcribe(
+            utt,
+            language='en'
+        )
+
+        for s in segments:
+            print(s.text)
 
 if __name__ == "__main__":
     # initialize whisper model and state machine
@@ -97,6 +107,7 @@ if __name__ == "__main__":
     model = WhisperModel(model_size, device="cpu", compute_type="float32")
     vad = load_silero_vad()
     sm = StateMachine()
+    utterance_queue = queue.Queue()
 
     # get video feed from ESP32 server 
     cap = cv.VideoCapture("http://10.0.0.89/")
@@ -107,10 +118,14 @@ if __name__ == "__main__":
     # get audio feed from ESP32 server
     response = requests.get("http://10.0.0.89:81/", stream=True)
 
-    # start audio thread
+    # start audio and transcription thread
     event = threading.Event()
-    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, model, event,))
+
+    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, utterance_queue, event,))
+    transcript_thread = threading.Thread(target=transcription_loop, args=(utterance_queue, model, event))
+
     audio_thread.start()
+    transcript_thread.start()
 
     # run main/video loop
     while True:
@@ -133,6 +148,7 @@ if __name__ == "__main__":
 
     # cleanup
     audio_thread.join()
+    transcript_thread.join()
     cap.release()
     cv.destroyAllWindows()
     response.close()
