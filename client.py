@@ -1,9 +1,14 @@
+# interpreting streams/looping
 import requests
+import threading
+
+# data 
+import cv2 as cv
 import numpy as np
 from scipy.io.wavfile import write
-import time
-import threading
-import cv2 as cv
+
+# model
+from faster_whisper import WhisperModel
 
 # constants
 SAMPLE_RATE = 16_000
@@ -18,6 +23,10 @@ def audio_loop(res: requests.Response, buffer: bytearray, event: threading.Event
         buffer.extend(c)
 
 if __name__ == "__main__":
+    # initialize whisper model
+    model_size = "small" 
+    model = WhisperModel(model_size, device="cpu", compute_type="float32")
+
     # get video feed from ESP32 server 
     cap = cv.VideoCapture("http://10.0.0.89/")
     if not cap.isOpened():
@@ -44,9 +53,18 @@ if __name__ == "__main__":
 
         # get 5 seconds of audio
         if complete_samples >= 80_000:
-            samples = np.frombuffer(buffer, dtype=np.int32) >> 8
+            # assemble samples of audio
+            samples = np.frombuffer(buffer[:SAMPLE_RATE * 5 * 4], dtype=np.int32) >> 8
             samples = samples.astype(np.float32) / (2 ** 23)
-            write("sample.wav", SAMPLE_RATE, samples)
+            
+            # feed audio through whisper model
+            segments, _ = model.transcribe(
+                samples,
+                language='en'
+            )
+            for s in segments:
+                print(s.text)
+
             break
 
     
