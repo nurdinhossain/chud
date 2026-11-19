@@ -1,15 +1,11 @@
 import requests
 import numpy as np
-import cv2 as cv
 import time
+import threading
+import cv2 as cv
 
-if __name__ == "__main__":
-    # get video feed from ESP32 server 
-    cap = cv.VideoCapture("http://10.0.0.89/")
-    if not cap.isOpened():
-        print("Cannot open camera")
-        exit()
-
+# thread functions
+def video_loop(cap):
     # infinite loop to grab camera frames
     while True:
         # Capture frame-by-frame
@@ -27,7 +23,31 @@ if __name__ == "__main__":
         cv.imshow('frame', gray)
         if cv.waitKey(1) == ord('q'):
             break
-    
+
     # When everything done, release the capture
     cap.release()
     cv.destroyAllWindows()
+
+def audio_loop(res):
+    for c in res.iter_content(chunk_size=2048):
+        print(np.frombuffer(c, dtype=np.int32))
+
+if __name__ == "__main__":
+    # get video feed from ESP32 server 
+    cap = cv.VideoCapture("http://10.0.0.89/")
+    if not cap.isOpened():
+        print("Cannot open camera")
+        exit()
+
+    # get audio feed from ESP32 server
+    response = requests.get("http://10.0.0.89:81/", stream=True)
+
+    # start audio thread
+    audio_thread = threading.Thread(target=audio_loop, args=(response,))
+    audio_thread.start()
+
+    # run video loop
+    video_loop(cap)
+
+    # join thread
+    audio_thread.join()
