@@ -21,6 +21,8 @@ SAMPLES = int(SAMPLE_RATE * SECONDS)
 SAMPLE_BYTES = SAMPLES * BYTES_PER_HZ
 
 VAD_THRESHOLD = 0.5
+MAX_UTTERANCE_SECONDS = 30
+MAX_UTTERANCE_WINDOWS = int(MAX_UTTERANCE_SECONDS / SECONDS)
 
 # audio state machine
 class StateMachine:
@@ -47,7 +49,7 @@ class StateMachine:
                 self.silent_periods = 0
 
             # reset upon long silence (conversation assumed to have ended)
-            if self.silent_periods >= 22:
+            if self.silent_periods >= 22 or len(self.recording) >= MAX_UTTERANCE_WINDOWS:
                 self.mode = 0
                 self.silent_periods = 0
                 ret = np.concatenate(self.recording)
@@ -83,7 +85,13 @@ def audio_loop(res: requests.Response, sm: StateMachine, vad, q: queue.Queue, ev
             # update state machine and update queue if we have a valid utterance
             utterance = sm.process(samples, probability)
             if utterance is not None:
-                q.put(utterance)
+                try:
+                    q.put_nowait(utterance)
+                except queue.Full:
+                    try:
+                        q.get_nowait()
+                    except queue.Empty:
+                        pass
 
 def transcription_loop(q: queue.Queue, model: WhisperModel, event: threading.Event) -> None:
     while not event.is_set():
@@ -108,7 +116,7 @@ def main():
     model = WhisperModel(model_size, device="cpu", compute_type="float32")
     vad = load_silero_vad()
     sm = StateMachine()
-    utterance_queue = queue.Queue()
+    utterance_queue = queue.Queue(maxsize=5)
 
     # get video feed from ESP32 server 
     cap = cv.VideoCapture("http://10.0.0.89/")
