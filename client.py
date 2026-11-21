@@ -7,6 +7,8 @@ import cv2 as cv
 import numpy as np
 from collections import deque
 import queue
+import time
+from dataclasses import dataclass
 
 # model
 import torch
@@ -23,6 +25,15 @@ SAMPLE_BYTES = SAMPLES * BYTES_PER_HZ
 VAD_THRESHOLD = 0.5
 MAX_UTTERANCE_SECONDS = 30
 MAX_UTTERANCE_WINDOWS = int(MAX_UTTERANCE_SECONDS / SECONDS)
+
+FRAME_STORE_INTERVAL = 1.0 # seconds between retained video frames
+FRAME_HISTORY_SIZE = 30 # keeps ~30 seconds of history
+
+# a retained color frame and when we received it
+@dataclass
+class VideoFrame:
+    timestamp: float # time.monotonic() when the frame was received
+    frame: np.ndarray # original BGR color frame
 
 # audio state machine
 class StateMachine:
@@ -140,6 +151,10 @@ def main():
     audio_thread.start()
     transcript_thread.start()
 
+    # rolling history of color frames (owned by the main thread, so no lock needed yet)
+    frame_history = deque(maxlen=FRAME_HISTORY_SIZE)
+    last_stored_time = float("-inf")
+
     # run main/video loop
     while True:
         # Capture frame-by-frame
@@ -147,6 +162,13 @@ def main():
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
+
+        # store one color frame per interval
+        now = time.monotonic()
+        if now - last_stored_time >= FRAME_STORE_INTERVAL:
+            frame_history.append(VideoFrame(timestamp=now, frame=frame))
+            last_stored_time = now
+            print(f"Stored frame at {now:.2f}s | history size: {len(frame_history)}")
 
         # Our operations on the frame come here
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
