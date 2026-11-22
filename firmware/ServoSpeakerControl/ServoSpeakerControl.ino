@@ -3,7 +3,7 @@
 #include <ESPmDNS.h>
 #include <ESP32Servo.h>
 #include <ESP_I2S.h>
-#include "secrets.h"
+#include "../secrets.h"
 
 // network
 const char* HOSTNAME = "servo-speaker";  // reachable as servo-speaker.local

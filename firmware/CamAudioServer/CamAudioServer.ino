@@ -26,9 +26,8 @@
 #include "soc/rtc_cntl_reg.h"  //disable brownout problems
 #include "esp_http_server.h"
 
-// Network credentials
-const char* ssid = "funnyWifiName";
-const char* password = "Hybridbird2";
+// Network credentials (WIFI_SSID and WIFI_PASSWORD come from secrets.h)
+#include "../secrets.h"
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 #define CAMERA_MODEL_AI_THINKER
@@ -290,7 +289,7 @@ void setup() {
   }
 
   // Wi-Fi connection
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.setSleep(false);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
