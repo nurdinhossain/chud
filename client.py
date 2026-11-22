@@ -1,6 +1,7 @@
 # interpreting streams/looping
 import requests
 import threading
+import anthropic
 
 # data
 import cv2 as cv
@@ -12,11 +13,12 @@ from faster_whisper import WhisperModel
 from silero_vad import load_silero_vad
 
 # project modules
-from config import VIDEO_URL, AUDIO_URL, FRAME_STORE_INTERVAL, FRAME_HISTORY_SIZE
+from config import VIDEO_URL, AUDIO_URL, FRAME_STORE_INTERVAL, FRAME_HISTORY_SIZE, LLM_TIMEOUT_SECONDS
 from models import VideoFrame
 from state_machine import StateMachine
 from audio_loop import audio_loop
 from transcription import transcription_loop
+from llm import llm_loop
 from video import FrameHistory
 
 # main function
@@ -27,6 +29,8 @@ def main():
     vad = load_silero_vad()
     sm = StateMachine()
     utterance_queue = queue.Queue(maxsize=5)
+    question_queue = queue.Queue(maxsize=3)
+    client = anthropic.Anthropic(timeout=LLM_TIMEOUT_SECONDS) # reads ANTHROPIC_API_KEY
 
     # rolling history of color frames (main thread adds, audio thread reads snapshots)
     frame_history = FrameHistory(FRAME_HISTORY_SIZE)
@@ -44,14 +48,16 @@ def main():
         print("Attempt to connect to audio feed timed out. Exiting script.")
         exit()
 
-    # start audio and transcription threads
+    # start audio, transcription and LLM threads
     event = threading.Event()
 
     audio_thread = threading.Thread(target=audio_loop, args=(response, sm, vad, frame_history, utterance_queue, event,))
-    transcript_thread = threading.Thread(target=transcription_loop, args=(utterance_queue, model, event))
+    transcript_thread = threading.Thread(target=transcription_loop, args=(utterance_queue, model, question_queue, event))
+    llm_thread = threading.Thread(target=llm_loop, args=(question_queue, client, event))
 
     audio_thread.start()
     transcript_thread.start()
+    llm_thread.start()
 
     last_stored_time = float("-inf")
 
@@ -84,6 +90,7 @@ def main():
     # cleanup
     audio_thread.join()
     transcript_thread.join()
+    llm_thread.join()
     cap.release()
     cv.destroyAllWindows()
     response.close()
