@@ -14,6 +14,13 @@ class StateMachine:
         self.start_time = 0.0 # timestamp of the first window in the recording
         self.silent_periods = 0
 
+    # throw away any partial recording (used while the speaker is talking)
+    def reset(self) -> None:
+        self.mode = 0
+        self.pre_roll.clear()
+        self.recording.clear()
+        self.silent_periods = 0
+
     def process(self, samples: np.ndarray, p: float, timestamp: float) -> Utterance | None:
         # a window only counts as speech if VAD hears speech AND it is loud enough
         # (background voices pass VAD but are quieter than someone near the mic)

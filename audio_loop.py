@@ -12,7 +12,7 @@ from state_machine import StateMachine
 from video import FrameHistory
 
 # audio thread: stream -> VAD -> state machine -> (attach frames) -> utterance queue
-def audio_loop(res: requests.Response, sm: StateMachine, vad, frame_history: FrameHistory, q: queue.Queue, event: threading.Event) -> None:
+def audio_loop(res: requests.Response, sm: StateMachine, vad, frame_history: FrameHistory, q: queue.Queue, speaking: threading.Event, event: threading.Event) -> None:
     buffer = bytearray()
     for c in res.iter_content(chunk_size=2048):
         if event.is_set():
@@ -28,6 +28,11 @@ def audio_loop(res: requests.Response, sm: StateMachine, vad, frame_history: Fra
 
             # delete sample so we don't read it again
             del buffer[:SAMPLE_BYTES]
+
+            # ignore the mic while the speaker is talking so we don't hear ourselves
+            if speaking.is_set():
+                sm.reset()
+                continue
 
             # mark when this window was received (same clock as the video frames)
             timestamp = time.monotonic()

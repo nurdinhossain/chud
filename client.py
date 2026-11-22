@@ -34,6 +34,7 @@ def main():
     sm = StateMachine()
     utterance_queue = queue.Queue(maxsize=5)
     question_queue = queue.Queue(maxsize=3)
+    speaking = threading.Event() # set while the speaker is talking
     client = anthropic.Anthropic(timeout=LLM_TIMEOUT_SECONDS) # reads ANTHROPIC_API_KEY
 
     # rolling history of color frames (main thread adds, audio thread reads snapshots)
@@ -55,9 +56,9 @@ def main():
     # start audio, transcription and LLM threads
     event = threading.Event()
 
-    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, vad, frame_history, utterance_queue, event,))
+    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, vad, frame_history, utterance_queue, speaking, event,))
     transcript_thread = threading.Thread(target=transcription_loop, args=(utterance_queue, model, question_queue, event))
-    llm_thread = threading.Thread(target=llm_loop, args=(question_queue, client, event))
+    llm_thread = threading.Thread(target=llm_loop, args=(question_queue, client, speaking, event))
 
     audio_thread.start()
     transcript_thread.start()
