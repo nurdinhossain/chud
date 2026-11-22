@@ -12,7 +12,7 @@ SAMPLE_BYTES = SAMPLES * BYTES_PER_HZ
 
 VAD_THRESHOLD = 0.7 # minimum VAD probability to count a window as speech
 MIN_SPEECH_RMS = 0.01 # minimum loudness (0-1 scale) to count a window as speech; filters distant voices
-DEBUG_AUDIO_LEVELS = True # print loudness of speech-like windows to help tune MIN_SPEECH_RMS
+DEBUG_AUDIO_LEVELS = False # print loudness of speech-like windows to help tune MIN_SPEECH_RMS
 MAX_UTTERANCE_SECONDS = 30
 MAX_UTTERANCE_WINDOWS = int(MAX_UTTERANCE_SECONDS / SECONDS)
 
@@ -27,6 +27,6 @@ FRAME_MAX_SIDE = 768 # frames are downscaled to this many pixels on the long sid
 NO_SPEECH_THRESHOLD = 0.6 # drop whisper segments that are probably not speech
 
 # LLM (needs the ANTHROPIC_API_KEY environment variable)
-LLM_MODEL = "claude-sonnet-5-5"
-LLM_MAX_TOKENS = 2048 # includes thinking tokens
+LLM_MODEL = "claude-haiku-5-5"
+LLM_MAX_TOKENS = 400 # caps reply length; includes thinking tokens
 LLM_TIMEOUT_SECONDS = 30

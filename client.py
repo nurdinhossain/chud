@@ -78,7 +78,6 @@ def main():
         if now - last_stored_time >= FRAME_STORE_INTERVAL:
             frame_history.add(VideoFrame(timestamp=now, frame=frame))
             last_stored_time = now
-            print(f"Stored frame at {now:.2f}s | history size: {len(frame_history)}")
 
         # Our operations on the frame come here
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)

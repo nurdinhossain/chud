@@ -14,7 +14,7 @@ SYSTEM_PROMPT = (
     "The user speaks to you, and you are shown frames from their camera in time order, "
     "each labeled with how long before they finished speaking it was taken. "
     "Use the frames to answer questions about what they were looking at or holding. "
-    "Keep answers short and conversational, since they may be read aloud."
+    "Answer in one or two short sentences, since the reply may be read aloud."
 )
 
 # downscale a frame and convert it to a base64 JPEG image block
@@ -40,11 +40,9 @@ def build_content(question: Question) -> list[dict]:
 
 # send the question to Claude and print the reply as it streams in
 def ask_claude(client: anthropic.Anthropic, question: Question) -> None:
-    with client.beta.messages.stream(
+    with client.messages.stream(
         model=LLM_MODEL,
         max_tokens=LLM_MAX_TOKENS,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default", # retry on a fallback model if the safety filter declines
         output_config={"effort": "low"}, # fast replies; raise for harder questions
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_content(question)}],
