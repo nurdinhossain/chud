@@ -30,3 +30,15 @@ NO_SPEECH_THRESHOLD = 0.6 # drop whisper segments that are probably not speech
 LLM_MODEL = "claude-haiku-5-5"
 LLM_MAX_TOKENS = 400 # caps reply length; includes thinking tokens
 LLM_TIMEOUT_SECONDS = 30
+
+# servo + speaker ESP32 (see ServoSpeakerControl.ino)
+SERVO_SPEAKER_HOST = "servo-speaker.local"
+SERVO_URL = f"http://{SERVO_SPEAKER_HOST}/servo"
+SPEAKER_PORT = 81
+SPEAKER_SAMPLE_RATE = 16_000 # must match SAMPLE_RATE in ServoSpeakerControl.ino
+SPEAKER_CHUNK_BYTES = 4096 # bytes sent to the speaker per network write
+SERVO_MIN_ANGLE = 0
+SERVO_FALLBACK_SPEECH = "Okay." # spoken when Claude moves the servo without saying anything
+SERVO_MAX_ANGLE = 180
+ESP_TIMEOUT_SECONDS = 10
+SPEAKER_ECHO_TAIL_SECONDS = 1.0 # keep ignoring the mic this long after speaking ends
