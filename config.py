@@ -10,7 +10,9 @@ BYTES_PER_HZ = 4
 SAMPLES = int(SAMPLE_RATE * SECONDS)
 SAMPLE_BYTES = SAMPLES * BYTES_PER_HZ
 
-VAD_THRESHOLD = 0.5
+VAD_THRESHOLD = 0.7 # minimum VAD probability to count a window as speech
+MIN_SPEECH_RMS = 0.01 # minimum loudness (0-1 scale) to count a window as speech; filters distant voices
+DEBUG_AUDIO_LEVELS = True # print loudness of speech-like windows to help tune MIN_SPEECH_RMS
 MAX_UTTERANCE_SECONDS = 30
 MAX_UTTERANCE_WINDOWS = int(MAX_UTTERANCE_SECONDS / SECONDS)
 

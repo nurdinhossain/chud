@@ -2,7 +2,7 @@ from collections import deque
 
 import numpy as np
 
-from config import VAD_THRESHOLD, MAX_UTTERANCE_WINDOWS
+from config import VAD_THRESHOLD, MIN_SPEECH_RMS, DEBUG_AUDIO_LEVELS, MAX_UTTERANCE_WINDOWS
 from models import Utterance
 
 # audio state machine
@@ -15,8 +15,15 @@ class StateMachine:
         self.silent_periods = 0
 
     def process(self, samples: np.ndarray, p: float, timestamp: float) -> Utterance | None:
+        # a window only counts as speech if VAD hears speech AND it is loud enough
+        # (background voices pass VAD but are quieter than someone near the mic)
+        rms = float(np.sqrt(np.mean(samples ** 2)))
+        if DEBUG_AUDIO_LEVELS and p >= VAD_THRESHOLD:
+            print(f"speech-like window: rms={rms:.4f} (min {MIN_SPEECH_RMS}) vad={p:.2f}")
+        is_speech = p >= VAD_THRESHOLD and rms >= MIN_SPEECH_RMS
+
         if self.mode == 0:
-            if p < VAD_THRESHOLD:
+            if not is_speech:
                 self.pre_roll.append((timestamp, samples))
             else:
                 self.mode = 1
@@ -28,10 +35,10 @@ class StateMachine:
         else:
             self.recording.append(samples)
 
-            if p < VAD_THRESHOLD:
-                self.silent_periods += 1
-            else:
+            if is_speech:
                 self.silent_periods = 0
+            else:
+                self.silent_periods += 1
 
             # reset upon long silence (conversation assumed to have ended)
             if self.silent_periods >= 22 or len(self.recording) >= MAX_UTTERANCE_WINDOWS:
