@@ -4,7 +4,6 @@ import threading
 
 # data
 import cv2 as cv
-from collections import deque
 import queue
 import time
 
@@ -18,6 +17,7 @@ from models import VideoFrame
 from state_machine import StateMachine
 from audio_loop import audio_loop
 from transcription import transcription_loop
+from video import FrameHistory
 
 # main function
 def main():
@@ -27,6 +27,9 @@ def main():
     vad = load_silero_vad()
     sm = StateMachine()
     utterance_queue = queue.Queue(maxsize=5)
+
+    # rolling history of color frames (main thread adds, audio thread reads snapshots)
+    frame_history = FrameHistory(FRAME_HISTORY_SIZE)
 
     # get video feed from ESP32 server 
     cap = cv.VideoCapture(VIDEO_URL)
@@ -41,17 +44,15 @@ def main():
         print("Attempt to connect to audio feed timed out. Exiting script.")
         exit()
 
-    # start audio and transcription thread
+    # start audio and transcription threads
     event = threading.Event()
 
-    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, vad, utterance_queue, event,))
+    audio_thread = threading.Thread(target=audio_loop, args=(response, sm, vad, frame_history, utterance_queue, event,))
     transcript_thread = threading.Thread(target=transcription_loop, args=(utterance_queue, model, event))
 
     audio_thread.start()
     transcript_thread.start()
 
-    # rolling history of color frames (owned by the main thread, so no lock needed yet)
-    frame_history = deque(maxlen=FRAME_HISTORY_SIZE)
     last_stored_time = float("-inf")
 
     # run main/video loop
@@ -65,7 +66,7 @@ def main():
         # store one color frame per interval
         now = time.monotonic()
         if now - last_stored_time >= FRAME_STORE_INTERVAL:
-            frame_history.append(VideoFrame(timestamp=now, frame=frame))
+            frame_history.add(VideoFrame(timestamp=now, frame=frame))
             last_stored_time = now
             print(f"Stored frame at {now:.2f}s | history size: {len(frame_history)}")
 

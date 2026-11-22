@@ -6,11 +6,13 @@ import numpy as np
 import requests
 import torch
 
-from config import SAMPLE_RATE, SAMPLE_BYTES
+from config import SAMPLE_RATE, SAMPLE_BYTES, FRAME_MARGIN_SECONDS
+from queue_utils import put_drop_oldest
 from state_machine import StateMachine
+from video import FrameHistory
 
-# audio thread: stream -> VAD -> state machine -> utterance queue
-def audio_loop(res: requests.Response, sm: StateMachine, vad, q: queue.Queue, event: threading.Event) -> None:
+# audio thread: stream -> VAD -> state machine -> (attach frames) -> utterance queue
+def audio_loop(res: requests.Response, sm: StateMachine, vad, frame_history: FrameHistory, q: queue.Queue, event: threading.Event) -> None:
     buffer = bytearray()
     for c in res.iter_content(chunk_size=2048):
         if event.is_set():
@@ -34,13 +36,8 @@ def audio_loop(res: requests.Response, sm: StateMachine, vad, q: queue.Queue, ev
             with torch.inference_mode():
                 probability = vad(torch.from_numpy(samples), SAMPLE_RATE).item()
 
-            # update state machine and update queue if we have a valid utterance
+            # update state machine; attach nearby video frames and queue any finished utterance
             utterance = sm.process(samples, probability, timestamp)
             if utterance is not None:
-                try:
-                    q.put_nowait(utterance)
-                except queue.Full:
-                    try:
-                        q.get_nowait()
-                    except queue.Empty:
-                        pass
+                utterance.frames = frame_history.get_range(utterance.start_time - FRAME_MARGIN_SECONDS, utterance.end_time)
+                put_drop_oldest(q, utterance)

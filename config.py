@@ -17,3 +17,6 @@ MAX_UTTERANCE_WINDOWS = int(MAX_UTTERANCE_SECONDS / SECONDS)
 # video constants
 FRAME_STORE_INTERVAL = 1.0 # seconds between retained video frames
 FRAME_HISTORY_SIZE = 30 # keeps ~30 seconds of history
+FRAME_MARGIN_SECONDS = 2.0 # extra history to include before an utterance starts
+MAX_FRAMES_PER_UTTERANCE = 6 # caps images sent to the LLM (cost and latency)
+
