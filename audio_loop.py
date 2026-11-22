@@ -1,5 +1,6 @@
 import queue
 import threading
+import time
 
 import numpy as np
 import requests
@@ -26,12 +27,15 @@ def audio_loop(res: requests.Response, sm: StateMachine, vad, q: queue.Queue, ev
             # delete sample so we don't read it again
             del buffer[:SAMPLE_BYTES]
 
+            # mark when this window was received (same clock as the video frames)
+            timestamp = time.monotonic()
+
             # feed audio through silero VAD model
             with torch.inference_mode():
                 probability = vad(torch.from_numpy(samples), SAMPLE_RATE).item()
 
             # update state machine and update queue if we have a valid utterance
-            utterance = sm.process(samples, probability)
+            utterance = sm.process(samples, probability, timestamp)
             if utterance is not None:
                 try:
                     q.put_nowait(utterance)

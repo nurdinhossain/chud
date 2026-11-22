@@ -13,9 +13,9 @@ def transcription_loop(q: queue.Queue, model: WhisperModel, event: threading.Eve
             continue
 
         segments, _ = model.transcribe(
-            utt,
+            utt.samples,
             language='en'
         )
 
         for s in segments:
-            print(s.text)
+            print(f"[{utt.start_time:.2f}s - {utt.end_time:.2f}s] {s.text}")
