@@ -2,6 +2,7 @@
 import requests
 import threading
 import anthropic
+from dotenv import load_dotenv
 
 # data
 import cv2 as cv
@@ -23,6 +24,9 @@ from video import FrameHistory
 
 # main function
 def main():
+    # load ANTHROPIC_API_KEY from .env
+    load_dotenv()
+
     # initialize whisper model and state machine
     model_size = "small" 
     model = WhisperModel(model_size, device="cpu", compute_type="float32")
